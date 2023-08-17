@@ -190,3 +190,50 @@ class Downloader:
 
         # Get number of unique accession numbers downloaded
         return get_number_of_unique_filings(filings_to_fetch)
+
+
+    def download_and_save_filing(
+        client: requests.Session,
+        download_folder: Path,
+        ticker_or_cik: str,
+        accession_number: str,
+        filing_type: str,
+        download_url: str,
+        save_filename: str,
+        *,
+        resolve_urls: bool = False,
+    ) -> None:
+        headers = {
+            "User-Agent": generate_random_user_agent(),
+            "Accept-Encoding": "gzip, deflate",
+            "Host": "www.sec.gov",
+        }
+        resp = client.get(download_url, headers=headers)
+        resp.raise_for_status()
+        filing_text = resp.content
+
+        file_extension = Path(save_filename).suffix.lower()
+
+        # Only resolve URLs in HTML files
+        if resolve_urls and file_extension == ".html":
+            filing_text = resolve_relative_urls_in_filing(filing_text, download_url)
+
+        # Skip saving if the file extension is ".html"
+        if file_extension == ".html":
+            print(f"Skipping {save_filename} due to HTML file extension.")
+            return
+
+        # Create all parent directories as needed and write content to file
+        save_path = (
+            download_folder
+            / ROOT_SAVE_FOLDER_NAME
+            / ticker_or_cik
+            / filing_type
+            / accession_number
+            / save_filename
+        )
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        save_path.write_bytes(filing_text)
+
+        # Prevent rate limiting
+        time.sleep(SEC_EDGAR_RATE_LIMIT_SLEEP_INTERVAL)
